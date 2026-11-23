@@ -73,18 +73,32 @@ jobs:
           save-cache: false
 
       - name: Install dependencies
+        # Installs the bandit/pip-audit CLIs themselves. The audit below is
+        # scoped to the runtime closure, not to this all-groups environment.
         run: uv sync --all-groups
 
       - name: Run bandit (code-level static security scan)
         run: uv run bandit -r src/ -c pyproject.toml
 
       # pip-audit: dependency-level vulnerability scan. Replaces `safety`,
-      # which requires interactive login and hangs in CI. Audits the fully
-      # resolved environment against the PyPI Advisory Database; fails the job
+      # which requires interactive login and hangs in CI. Audits the runtime
+      # dependency closure against the PyPI Advisory Database; fails the job
       # if a known vulnerability with an available fix is present. Dependabot
       # still surfaces advisories on GitHub; this enforces them in CI.
+      #
+      # Do NOT audit the full `uv sync --all-groups` environment: that also
+      # sweeps pip-audit's own toolchain (requests -> certifi/urllib3,
+      # cachecontrol -> filelock/msgpack, pytest-mypy -> filelock), which is
+      # never shipped to users and kept every PR permanently red. Export with
+      # --no-default-groups to audit exactly the packages users install.
+      - name: Export runtime requirements
+        run: |
+          uv export --format requirements-txt --no-dev --no-default-groups --no-hashes > /tmp/runtime-reqs.txt
+          test -s /tmp/runtime-reqs.txt
+          cat /tmp/runtime-reqs.txt
+
       - name: Run pip-audit (dependency vulnerability scan)
-        run: uv run pip-audit
+        run: uv run pip-audit -r /tmp/runtime-reqs.txt
 
   test:
     name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
