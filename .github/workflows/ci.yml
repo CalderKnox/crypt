@@ -97,8 +97,19 @@ jobs:
           test -s /tmp/runtime-reqs.txt
           cat /tmp/runtime-reqs.txt
 
+      # pip-audit's `-r` mode builds a throwaway virtualenv via ensurepip,
+      # which can fail on minimal CI runners ("ensurepip returned non-zero").
+      # Build the environment ourselves and audit its site-packages directly
+      # with --path, so no temporary venv (and no ensurepip) is involved.
+      - name: Install runtime deps into a dedicated audit environment
+        run: |
+          uv venv /tmp/audit-env
+          uv pip install --python /tmp/audit-env/bin/python -r /tmp/runtime-reqs.txt
+
       - name: Run pip-audit (dependency vulnerability scan)
-        run: uv run pip-audit -r /tmp/runtime-reqs.txt
+        run: |
+          SITE=$(/tmp/audit-env/bin/python -c "import sysconfig;print(sysconfig.get_paths()['purelib'])")
+          uv run pip-audit --path "$SITE"
 
   test:
     name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
